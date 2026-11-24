@@ -19,11 +19,14 @@ TOPIC := telemetry.raw
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
 
+# The UI port from .env (compose reads it there too), default 8080
+AIRFLOW_PORT ?= $(or $(shell sed -n 's/^AIRFLOW_PORT=//p' .env 2>/dev/null),8080)
+
 up: build ## build images, start Kafka + Airflow, create the topic, install dbt packages and seeds
 	mkdir -p data
 	$(COMPOSE) up -d --wait kafka airflow-postgres airflow-scheduler airflow-webserver
 	$(MAKE) topic
-	@echo "Airflow UI: http://localhost:$${AIRFLOW_PORT:-8080} (admin / admin)"
+	@echo "Airflow UI: http://localhost:$(AIRFLOW_PORT) (admin / admin)"
 
 build: ## build the pipeline image
 	$(COMPOSE) build airflow-scheduler
