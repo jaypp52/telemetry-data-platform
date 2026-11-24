@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "telemetry/heartbeat.json",
+  "title": "heartbeat",
+  "description": "System health sample, every 60 s while ignition is on.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "Globally unique event id (dedupe key)."
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^dev-[0-9]{6}$",
+      "description": "Device that produced the event."
+    },
+    "event_ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Device clock time of the event, ISO-8601 UTC."
+    },
+    "firmware_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Firmware running when the event was produced."
+    },
+    "event_type": {
+      "const": "heartbeat"
+    },
+    "cpu_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "mem_free_mb": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65536
+    },
+    "temp_c": {
+      "type": "number",
+      "minimum": -40,
+      "maximum": 125
+    },
+    "storage_free_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    }
+  },
+  "required": [
+    "event_id",
+    "device_id",
+    "event_type",
+    "event_ts",
+    "firmware_version",
+    "cpu_pct",
+    "mem_free_mb",
+    "temp_c",
+    "storage_free_pct"
+  ]
+}

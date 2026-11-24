@@ -1,0 +1,7 @@
+event_code,category,severity,description
+CAM_CRASH,camera,error,Camera pipeline process exited unexpectedly
+REBOOT,system,warning,Device rebooted (after a crash or spontaneously)
+LOW_MEMORY,system,warning,Free memory dropped below 25% of the model's budget
+OVERHEAT,thermal,critical,Board temperature exceeded 85 C
+FW_UPDATE,firmware,info,Over-the-air firmware update applied
+SD_CARD_ERROR,storage,error,Write to local storage failed

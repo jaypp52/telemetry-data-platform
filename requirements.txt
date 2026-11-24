@@ -1,0 +1,6 @@
+# Pipeline runtime (installed into the Airflow image next to Airflow 2.11.2).
+pyspark==3.5.8
+confluent-kafka==2.13.2
+jsonschema==4.24.1
+duckdb==1.4.4
+pyarrow==18.1.0

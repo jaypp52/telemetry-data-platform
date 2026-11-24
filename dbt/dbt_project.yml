@@ -1,0 +1,39 @@
+name: telemetry
+version: "1.0.0"
+config-version: 2
+profile: telemetry
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Logical date of the pipeline run (Airflow passes {{ ds }}). The far-future default
+  # means "everything", which is what CI and ad-hoc runs want.
+  run_date: "9999-12-31"
+  dim_date_start: "2025-01-01"
+  dim_date_end: "2027-12-31"
+
+models:
+  telemetry:
+    staging:
+      +schema: staging
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
+
+seeds:
+  telemetry:
+    +schema: marts
+
+snapshots:
+  telemetry:
+    +target_schema: snapshots
+
+data_tests:
+  telemetry:
+    +severity: error

@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: stg_heartbeat
+    description: "Typed heartbeat samples from silver. One row per heartbeat event."
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: event_type
+        data_tests:
+          - accepted_values: {arguments: {values: [heartbeat]}}
+      - name: minute_ts
+        description: "event_ts truncated to the minute; join key for fct_device_minute."
+      - name: temp_c
+        description: "Board temperature in degrees Celsius."
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: -40, max_value: 125}}
+  - name: stg_lte
+    description: "Typed LTE modem samples from silver. One row per lte_sample event."
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: event_type
+        data_tests:
+          - accepted_values: {arguments: {values: [lte_sample]}}
+      - name: registered
+        description: "Modem registered on the cellular network."
+      - name: ip_assigned
+        description: "Modem has an IP address (data session up)."
+  - name: stg_gps
+    description: "Typed GNSS fixes from silver. One row per gps_fix event."
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: event_type
+        data_tests:
+          - accepted_values: {arguments: {values: [gps_fix]}}
+  - name: stg_trip
+    description: "One row per trip, pairing trip_start and trip_end."
+    columns:
+      - name: trip_id
+        data_tests: [unique, not_null]
+  - name: stg_device_event
+    description: "Typed device events from silver. One row per device_event."
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: event_type
+        data_tests:
+          - accepted_values: {arguments: {values: [device_event]}}
+      - name: event_code
+        data_tests:
+          - accepted_values: {arguments: {values: [CAM_CRASH, REBOOT, LOW_MEMORY, OVERHEAT, FW_UPDATE, SD_CARD_ERROR]}}
+      - name: severity
+        data_tests:
+          - accepted_values: {arguments: {values: [info, warning, error, critical]}}
+  - name: stg_fleet_registry
+    description: "Provisioned devices from the fleet registry export."
+    columns:
+      - name: device_id
+        data_tests: [unique, not_null]
+      - name: hardware_model
+        data_tests:
+          - accepted_values: {arguments: {values: [TX-100, TX-200, TX-300]}}
+  - name: stg_firmware_releases
+    description: "Firmware versions and release dates from the OTA export."
+    columns:
+      - name: firmware_version
+        data_tests: [unique, not_null]

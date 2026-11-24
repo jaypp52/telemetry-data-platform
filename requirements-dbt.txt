@@ -1,0 +1,4 @@
+# dbt lives in its own virtualenv (/opt/dbt-venv) so its pins never fight Airflow's.
+dbt-core==1.11.15
+dbt-duckdb==1.11.1
+duckdb==1.4.4

@@ -1,0 +1,31 @@
+version: 2
+seeds:
+  - name: dim_event_code
+    description: "Dimension of device event codes (seed). One row per event_code."
+    config:
+      column_types: {event_code: varchar, category: varchar, severity: varchar, description: varchar}
+    columns:
+      - name: event_code
+        description: "Primary key. Code reported by the device, e.g. CAM_CRASH."
+        data_tests: [unique, not_null]
+      - name: category
+        description: "Subsystem the code belongs to (camera, system, thermal, firmware, storage)."
+        data_tests: [not_null]
+      - name: severity
+        description: "Default severity of the code."
+        data_tests:
+          - accepted_values: {arguments: {values: [info, warning, error, critical]}}
+      - name: description
+        description: "Human-readable meaning of the code."
+  - name: dim_region
+    description: "Dimension of operating regions (seed). One row per region_id."
+    config:
+      column_types: {region_id: varchar, region_name: varchar, timezone: varchar, center_lat: double, center_lon: double}
+    columns:
+      - name: region_id
+        description: "Primary key, e.g. us-west."
+        data_tests: [unique, not_null]
+      - name: region_name
+        description: "Display name of the region."
+      - name: timezone
+        description: "IANA timezone used for local-time questions (trips follow local daytime)."

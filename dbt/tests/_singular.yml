@@ -1,0 +1,14 @@
+version: 2
+data_tests:
+  - name: assert_one_current_row_per_device
+    description: "No device has two is_current = true rows in dim_device."
+  - name: assert_scd2_windows_do_not_overlap
+    description: "SCD2 windows are non-empty and never overlap per device."
+  - name: assert_daily_drive_minutes_le_1440
+    description: "Daily drive minutes never exceed 1440."
+  - name: assert_rows_arrived_for_run_date
+    description: "fct_device_daily has rows for the run date (data actually arrived)."
+  - name: assert_fact_firmware_matches_dim_device
+    description: "The as-of join to dim_device agrees with the firmware the device reported."
+  - name: assert_snapshot_captures_every_upgrade
+    description: "The SCD2 snapshot has a row for every firmware version a device reported."

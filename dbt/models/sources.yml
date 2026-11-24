@@ -1,0 +1,59 @@
+version: 2
+
+sources:
+  - name: silver
+    description: >
+      Silver Parquet written by spark_jobs/silver_transform.py: parsed, typed, deduplicated,
+      clock-checked events, one folder per event type, partitioned by event_date (UTC).
+    meta:
+      external_location: "read_parquet('{{ env_var('DATA_DIR', '/opt/data') }}/lake/silver/{name}/*/*.parquet', hive_partitioning = true, union_by_name = true)"
+    config:
+      loaded_at_field: ingest_ts
+      freshness:
+        warn_after: {count: 2, period: hour}
+        error_after: {count: 6, period: hour}
+    tables:
+      - name: heartbeat
+        description: "System health samples (CPU, memory, temperature, storage), every 60 s while ignition is on."
+        columns: &envelope
+          - name: event_id
+            data_tests: [unique, not_null]
+          - name: device_id
+            data_tests: [not_null]
+          - name: event_ts
+            data_tests: [not_null]
+          - name: event_type
+            data_tests:
+              - accepted_values:
+                  arguments: {values: [heartbeat, lte_sample, gps_fix, trip_start, trip_end, device_event]}
+      - name: lte_sample
+        description: "Cellular modem samples (RSRP, SINR, registration, IP), every 60 s while ignition is on."
+        columns: *envelope
+      - name: gps_fix
+        description: "GNSS fixes (position, speed, satellites, validity), every 60 s while ignition is on."
+        columns: *envelope
+      - name: trip_start
+        description: "Ignition-on events with trip_id and odometer."
+        columns: *envelope
+      - name: trip_end
+        description: "Ignition-off events with trip_id and odometer."
+        columns: *envelope
+      - name: device_event
+        description: "Sporadic device events: crashes, reboots, alarms, firmware updates."
+        columns: *envelope
+
+  - name: reference
+    description: "Master data exported by the (simulated) provisioning and OTA systems as CSV files."
+    meta:
+      external_location: "read_csv('{{ env_var('DATA_DIR', '/opt/data') }}/lake/reference/{name}.csv', header = true)"
+    tables:
+      - name: fleet_registry
+        description: "One row per provisioned device: hardware model, region, install date."
+        columns:
+          - name: device_id
+            data_tests: [unique, not_null]
+      - name: firmware_releases
+        description: "One row per firmware version with its release date."
+        columns:
+          - name: firmware_version
+            data_tests: [unique, not_null]

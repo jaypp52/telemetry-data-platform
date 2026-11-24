@@ -1,0 +1,148 @@
+# One-command stack: `make up`. Every image tag is pinned.
+# Memory budget (16 GB laptop): see "Resources" in the README.
+
+x-airflow: &airflow
+  image: telemetry-platform:${IMAGE_TAG:-dev}
+  build:
+    context: .
+    dockerfile: docker/airflow/Dockerfile
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__PARALLELISM: "4"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/project/dags
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: "60"
+    AIRFLOW__WEBSERVER__WORKERS: "2"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+    PROJECT_DIR: /opt/project
+    DATA_DIR: /opt/data
+    PYTHONPATH: /opt/project
+    DBT_PROFILES_DIR: /opt/project/dbt
+    KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    SPARK_DRIVER_MEMORY: ${SPARK_DRIVER_MEMORY:-2g}
+    SIM_START_DATE: ${SIM_START_DATE:-2026-01-01}
+    LIVE_START_DATE: ${LIVE_START_DATE:-}
+    ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+  volumes:
+    - ./:/opt/project
+    - ./data:/opt/data
+  depends_on: &airflow-deps
+    airflow-postgres:
+      condition: service_healthy
+    kafka:
+      condition: service_healthy
+
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    hostname: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller  # KRaft: no ZooKeeper
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
+    ports:
+      - "29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 15s
+    mem_limit: 1g
+
+  airflow-postgres:
+    image: postgres:16.10-bookworm
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 512m
+
+  airflow-init:
+    <<: *airflow
+    # keep the image's entrypoint: it registers the arbitrary AIRFLOW_UID as a user
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        mkdir -p /opt/data/lake /opt/data/stats /opt/data/run_reports /opt/data/checkpoints
+        airflow db migrate
+        airflow users create --username "$${AIRFLOW_ADMIN_USER:-admin}" --password "$${AIRFLOW_ADMIN_PASSWORD:-admin}" \
+          --firstname Admin --lastname User --role Admin --email admin@example.com || true
+        cd /opt/project/dbt && dbt deps --quiet && dbt seed --quiet
+    depends_on: *airflow-deps
+    restart: "no"
+
+  airflow-scheduler:
+    <<: *airflow
+    command: scheduler
+    depends_on:
+      <<: *airflow-deps
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\""]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    mem_limit: 5g  # scheduler + one spark-submit driver (2 GB heap) + dbt/DuckDB
+
+  airflow-webserver:
+    <<: *airflow
+    command: webserver
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    depends_on:
+      <<: *airflow-deps
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    mem_limit: 1536m
+
+  simulator:
+    <<: *airflow
+    profiles: ["live"]
+    command: ["python", "-m", "simulator.produce", "--mode", "live", "--devices", "${DEVICES:-500}", "--rate", "${RATE:-50}"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 512m
+
+volumes:
+  kafka-data:
+  airflow-db:

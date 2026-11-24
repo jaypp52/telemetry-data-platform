@@ -1,0 +1,252 @@
+version: 2
+
+# Descriptions here are part of the product: the Text-to-SQL agent reads them to learn
+# what each table and metric means. Keep definitions exact.
+
+models:
+  - name: dim_device
+    description: >
+      SCD Type 2 device dimension, built from the dim_device_snapshot snapshot. One row per
+      device per firmware validity window [valid_from, valid_to). Join facts "as of" event
+      time with `event_ts >= valid_from and event_ts < valid_to`; use `is_current` for the
+      device's present state.
+    columns:
+      - name: device_key
+        description: "Surrogate primary key of a device version (one per validity window)."
+        data_tests: [unique, not_null]
+      - name: device_id
+        description: "Natural device id, e.g. dev-000001. Not unique here: one row per firmware window."
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('stg_fleet_registry'), field: device_id}}
+      - name: hardware_model
+        description: "Hardware model: TX-100, TX-200 or TX-300."
+        data_tests:
+          - accepted_values: {arguments: {values: [TX-100, TX-200, TX-300]}}
+      - name: region_id
+        description: "Operating region of the device."
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_region'), field: region_id}}
+      - name: install_date
+        description: "Date the device was installed in the vehicle."
+      - name: firmware_version
+        description: "Firmware version running during this window."
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_firmware'), field: firmware_version}}
+      - name: valid_from
+        description: "Start of the window (inclusive): first event on this firmware; install date for the first version."
+        data_tests: [not_null]
+      - name: valid_to
+        description: "End of the window (exclusive); 9999-12-31 for the current row."
+        data_tests: [not_null]
+      - name: is_current
+        description: "True for the device's latest known firmware window."
+
+  - name: dim_firmware
+    description: "Firmware dimension. One row per firmware version."
+    columns:
+      - name: firmware_version
+        description: "Primary key, semantic version string such as 1.1.0."
+        data_tests: [unique, not_null]
+      - name: release_date
+        description: "Date the version was released to the fleet (start of its rollout)."
+        data_tests: [not_null]
+      - name: is_latest
+        description: "True for the most recently released version."
+
+  - name: dim_date
+    description: "Calendar dimension (UTC days), generated with dbt_utils.date_spine."
+    columns:
+      - name: date_day
+        description: "Primary key: the calendar day."
+        data_tests: [unique, not_null]
+      - name: is_weekend
+        description: "Saturday or Sunday."
+
+  - name: fct_device_minute
+    description: >
+      Fact at device x minute grain for minutes with ignition on (the device was driving).
+      Joins the heartbeat, LTE and GPS samples of that minute. A "drive minute" is one row here.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [device_id, minute_ts]}
+    columns:
+      - name: device_minute_id
+        description: "Surrogate primary key (hash of device_id and minute_ts)."
+        data_tests: [unique, not_null]
+      - name: device_id
+        description: "Natural device id."
+        data_tests: [not_null]
+      - name: minute_ts
+        description: "UTC minute (timestamp truncated to the minute)."
+        data_tests: [not_null]
+      - name: event_date
+        description: "UTC date of minute_ts."
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_date'), field: date_day}}
+      - name: device_key
+        description: "FK to dim_device: the device version live at this minute (as-of join)."
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_device'), field: device_key}}
+      - name: firmware_version
+        description: "Firmware reported by the samples of this minute."
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_firmware'), field: firmware_version}}
+      - name: temp_c
+        description: "Board temperature, degrees Celsius."
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: -40, max_value: 125}}
+      - name: registered
+        description: "LTE modem registered on the network during this minute's sample."
+      - name: ip_assigned
+        description: "LTE data session had an IP address during this minute's sample."
+      - name: lte_lost
+        description: "True when `registered = false OR ip_assigned = false` (connectivity lost this minute)."
+      - name: fix_valid
+        description: "GPS fix was valid this minute."
+      - name: speed_kmh
+        description: "GPS speed, km/h."
+
+  - name: fct_device_event
+    description: "Fact with one row per device event (crash, reboot, alarm, firmware update)."
+    columns:
+      - name: event_id
+        description: "Primary key."
+        data_tests: [unique, not_null]
+      - name: device_key
+        description: "FK to dim_device, as of event_ts."
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_device'), field: device_key}}
+      - name: event_code
+        description: "FK to dim_event_code."
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_event_code'), field: event_code}}
+          - accepted_values: {arguments: {values: [CAM_CRASH, REBOOT, LOW_MEMORY, OVERHEAT, FW_UPDATE, SD_CARD_ERROR]}}
+      - name: severity
+        description: "Severity reported with the event."
+        data_tests:
+          - accepted_values: {arguments: {values: [info, warning, error, critical]}}
+      - name: event_date
+        description: "UTC date of event_ts."
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_date'), field: date_day}}
+      - name: firmware_version
+        description: "Firmware that produced the event."
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_firmware'), field: firmware_version}}
+
+  - name: fct_trip
+    description: "Fact with one row per trip (ignition on to ignition off)."
+    columns:
+      - name: trip_id
+        description: "Primary key."
+        data_tests: [unique, not_null]
+      - name: device_key
+        description: "FK to dim_device, as of trip start."
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_device'), field: device_key}}
+      - name: trip_date
+        description: "UTC date the trip started (or ended, if its start is not loaded)."
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_date'), field: date_day}}
+      - name: duration_min
+        description: "Minutes from trip_start to trip_end; null when the trip is incomplete."
+      - name: distance_km
+        description: "Odometer difference between trip_end and trip_start, km."
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: 0}}
+      - name: avg_speed_kmh
+        description: "distance_km / duration in hours."
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: 0, max_value: 200}}
+      - name: is_complete
+        description: "Both trip_start and trip_end were loaded."
+
+  - name: fct_device_daily
+    description: >
+      Aggregate fact at device x day grain (UTC days). A device-day exists when the device
+      had at least one drive minute or one device event that day.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [device_id, event_date]}
+    columns:
+      - name: device_id
+        description: "Natural device id."
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('stg_fleet_registry'), field: device_id}}
+      - name: event_date
+        description: "UTC day."
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_date'), field: date_day}}
+      - name: device_key
+        description: "FK to dim_device: the device version live at the end of the device's day."
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_device'), field: device_key}}
+      - name: firmware_version
+        description: "Firmware on that day (the last version the device ran that day)."
+      - name: firmware_changed
+        description: "The device ran more than one firmware version that day (it upgraded)."
+      - name: drive_minutes
+        description: "Minutes with ignition on (rows in fct_device_minute)."
+      - name: lte_loss_pct
+        description: >
+          Minutes with `registered = false OR ip_assigned = false` / drive minutes * 100.
+          Null when the device did not drive that day.
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: 0, max_value: 100}}
+      - name: gps_valid_pct
+        description: "Minutes with `fix_valid = true` / drive minutes * 100. Null when the device did not drive."
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: 0, max_value: 100}}
+      - name: crash_count
+        description: "CAM_CRASH events that day."
+      - name: avg_temp_c
+        description: "Average board temperature over the day's drive minutes."
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: -40, max_value: 125}}
+      - name: max_temp_c
+        description: "Maximum board temperature over the day's drive minutes."
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: -40, max_value: 125}}
+
+  - name: fct_firmware_daily
+    description: >
+      Aggregate fact at firmware_version x hardware_model x day grain: how healthy each
+      firmware is on each model. Use it for "before vs after the 1.1.0 upgrade" questions.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [firmware_version, hardware_model, event_date]}
+    columns:
+      - name: firmware_version
+        description: "FK to dim_firmware."
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_firmware'), field: firmware_version}}
+      - name: hardware_model
+        description: "Hardware model."
+        data_tests: [not_null]
+      - name: event_date
+        description: "UTC day."
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_date'), field: date_day}}
+      - name: device_count
+        description: "Distinct devices that drove on this firmware and model that day."
+      - name: device_days
+        description: "Device-days on this firmware and model (a device that upgraded mid-day counts once per version)."
+      - name: crash_count
+        description: "CAM_CRASH events produced by this firmware on this model that day."
+      - name: crash_rate_per_100_device_days
+        description: "crash_count / device_days * 100."
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: 0}}
+      - name: mean_lte_loss_pct
+        description: "Mean of the per-device-day lte_loss_pct (see fct_device_daily) on this firmware and model."
+        data_tests:
+          - dbt_utils.accepted_range: {arguments: {min_value: 0, max_value: 100}}

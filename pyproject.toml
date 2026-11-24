@@ -1,0 +1,21 @@
+[project]
+name = "telemetry-data-platform"
+version = "1.0.0"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["dbt/dbt_packages", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S"]
+ignore = ["S101", "S311", "S603", "S607", "S608", "B023"]  # S311: seeded PRNG is the point (reproducible data)
+
+[tool.ruff.lint.isort]
+known-first-party = ["simulator", "spark_jobs", "scripts", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["kafka: needs a running Kafka broker (KAFKA_BOOTSTRAP_SERVERS)"]
+filterwarnings = ["ignore::DeprecationWarning"]

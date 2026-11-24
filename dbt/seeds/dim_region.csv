@@ -1,0 +1,6 @@
+region_id,region_name,timezone,center_lat,center_lon
+us-west,US West,America/Los_Angeles,37.77,-122.42
+us-east,US East,America/New_York,40.71,-74.00
+eu-central,EU Central,Europe/Berlin,50.11,8.68
+in-west,India West,Asia/Kolkata,19.07,72.88
+ap-southeast,AP Southeast,Asia/Singapore,1.35,103.82

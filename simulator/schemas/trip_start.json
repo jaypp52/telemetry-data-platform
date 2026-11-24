@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "telemetry/trip_start.json",
+  "title": "trip_start",
+  "description": "Ignition on.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "Globally unique event id (dedupe key)."
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^dev-[0-9]{6}$",
+      "description": "Device that produced the event."
+    },
+    "event_ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Device clock time of the event, ISO-8601 UTC."
+    },
+    "firmware_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Firmware running when the event was produced."
+    },
+    "event_type": {
+      "const": "trip_start"
+    },
+    "trip_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "odometer_km": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "event_id",
+    "device_id",
+    "event_type",
+    "event_ts",
+    "firmware_version",
+    "trip_id",
+    "odometer_km"
+  ]
+}

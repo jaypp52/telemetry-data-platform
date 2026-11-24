@@ -1,0 +1,120 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  AIRFLOW_VERSION: "2.11.2"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint-test:
+    name: ruff + pytest (Spark, simulator, DAG)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install
+        run: |
+          pip install "apache-airflow==${AIRFLOW_VERSION}" \
+            --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Ruff
+        run: ruff check .
+      - name: Pytest
+        env:
+          AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+          AIRFLOW_HOME: ${{ runner.temp }}/airflow
+        run: |
+          airflow db migrate > /dev/null
+          pytest -q -m "not kafka"
+
+  kafka-integration:
+    name: Kafka -> bronze (real broker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      kafka:
+        # Single-node KRaft broker; its default config advertises localhost:9092.
+        image: apache/kafka:3.9.1
+        ports: ["9092:9092"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Wait for the broker
+        run: |
+          python - <<'PY'
+          import time
+          from confluent_kafka.admin import AdminClient
+          for _ in range(30):
+              try:
+                  AdminClient({"bootstrap.servers": "localhost:9092"}).list_topics(timeout=5)
+                  break
+              except Exception:
+                  time.sleep(2)
+          else:
+              raise SystemExit("kafka not ready")
+          PY
+      - name: Pytest (kafka)
+        env:
+          KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+        run: pytest -q -m kafka
+
+  dbt:
+    name: dbt parse + build on a generated fixture (no Kafka)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DATA_DIR: ${{ github.workspace }}/data/fixture
+      DBT_PROFILES_DIR: ${{ github.workspace }}/dbt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install
+        run: |
+          pip install -r requirements.txt
+          python -m venv /tmp/dbt-venv
+          /tmp/dbt-venv/bin/pip install -r requirements-dbt.txt
+          mkdir -p /tmp/dbt-bin && ln -s /tmp/dbt-venv/bin/dbt /tmp/dbt-bin/dbt  # only dbt, not the venv's python
+          echo "/tmp/dbt-bin" >> "$GITHUB_PATH"
+      - name: Build fixture (simulator -> bronze -> silver)
+        run: bash scripts/build_fixture.sh
+      - name: dbt deps + parse
+        working-directory: dbt
+        run: dbt deps && dbt parse
+      - name: dbt snapshot, one run per date (as the daily DAG does)
+        working-directory: dbt
+        run: |
+          dbt seed
+          for d in 2025-12-31 2026-01-01 2026-01-02 2026-01-03; do dbt snapshot --vars "{run_date: $d}"; done
+      - name: dbt build (models, snapshot, seeds, tests)
+        working-directory: dbt
+        run: dbt build
+      - name: dbt source freshness
+        working-directory: dbt
+        run: dbt source freshness
+      - name: dbt docs generate
+        working-directory: dbt
+        run: dbt docs generate

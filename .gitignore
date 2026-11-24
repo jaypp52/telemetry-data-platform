@@ -1,0 +1,23 @@
+# generated data: lake, warehouse, checkpoints, reports
+/data/
+# local config / secrets
+.env
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/.user.yml
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+# airflow / spark local runs
+logs/
+spark-warehouse/
+metastore_db/
+derby.log
+# airflow webserver control socket (cwd = /opt/project)
+gunicorn.ctl

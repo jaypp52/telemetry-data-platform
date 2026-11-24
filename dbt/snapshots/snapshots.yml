@@ -1,0 +1,7 @@
+version: 2
+snapshots:
+  - name: dim_device_snapshot
+    description: "SCD2 snapshot of device firmware. Read through the dim_device model."
+    columns:
+      - name: dbt_scd_id
+        data_tests: [unique, not_null]
